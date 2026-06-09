@@ -8,9 +8,12 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 var ErrNotFound = errors.New("authz: not found")
+
+var ErrConflict = errors.New("authz: conflict")
 
 type User struct {
 	ID           string
@@ -32,6 +35,10 @@ func (s *Store) CreateUser(ctx context.Context, email, passwordHash string) (str
 		`INSERT INTO auth_user (id, email, password_hash) VALUES ($1, $2, $3)`,
 		id, normalizeEmail(email), passwordHash)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return "", ErrConflict
+		}
 		return "", err
 	}
 	return id, nil

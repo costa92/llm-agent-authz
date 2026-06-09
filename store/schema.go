@@ -75,7 +75,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 			}
 		}
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO authz_schema_version(version) VALUES ($1)`, g.Version); err != nil {
+			`INSERT INTO authz_schema_version(version) VALUES ($1) ON CONFLICT (version) DO NOTHING`, g.Version); err != nil {
 			_ = tx.Rollback(ctx)
 			return err
 		}

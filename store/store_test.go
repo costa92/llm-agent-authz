@@ -74,6 +74,18 @@ func TestCreateUserDuplicateEmail(t *testing.T) {
 	}
 }
 
+func TestCreateUserDuplicateReturnsErrConflict(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t, ctx)
+	if _, err := s.CreateUser(ctx, "taken@x.com", "h"); err != nil {
+		t.Fatalf("first CreateUser: %v", err)
+	}
+	_, err := s.CreateUser(ctx, "TAKEN@x.com", "h")
+	if err != ErrConflict {
+		t.Fatalf("duplicate email err=%v, want ErrConflict", err)
+	}
+}
+
 func TestGetUserMissing(t *testing.T) {
 	ctx := context.Background()
 	s := openTestStore(t, ctx)
