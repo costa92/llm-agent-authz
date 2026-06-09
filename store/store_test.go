@@ -43,3 +43,38 @@ func TestMigrateIsIdempotent(t *testing.T) {
 		t.Fatalf("auth_user not queryable after migrate: %v", err)
 	}
 }
+
+func TestCreateAndGetUser(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t, ctx)
+	id, err := s.CreateUser(ctx, "Alice@Example.com", "phc-hash")
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	u, err := s.GetUserByEmail(ctx, "alice@example.com")
+	if err != nil {
+		t.Fatalf("GetUserByEmail: %v", err)
+	}
+	if u.ID != id || u.Email != "alice@example.com" || u.PasswordHash != "phc-hash" {
+		t.Fatalf("user mismatch: %+v", u)
+	}
+}
+
+func TestCreateUserDuplicateEmail(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t, ctx)
+	if _, err := s.CreateUser(ctx, "dup@x.com", "h"); err != nil {
+		t.Fatalf("first CreateUser: %v", err)
+	}
+	if _, err := s.CreateUser(ctx, "DUP@x.com", "h"); err == nil {
+		t.Fatal("duplicate email (case-insensitive) must error")
+	}
+}
+
+func TestGetUserMissing(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t, ctx)
+	if _, err := s.GetUserByEmail(ctx, "nobody@x.com"); err != ErrNotFound {
+		t.Fatalf("missing user err=%v, want ErrNotFound", err)
+	}
+}
