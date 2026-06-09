@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -150,5 +151,43 @@ func TestUpsertMembershipReplacesRole(t *testing.T) {
 	got, _ := s.ResolveRole(ctx, uid, oid, "kb", "kb-1")
 	if got != role.RoleAdmin {
 		t.Fatalf("upsert should replace role, got %q", got)
+	}
+}
+
+func TestSessionLifecycle(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t, ctx)
+	uid, _ := seedUserOrg(t, ctx, s)
+	exp := time.Now().Add(time.Hour)
+	if err := s.CreateSession(ctx, uid, "hash-1", "agent", exp); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	sess, err := s.SessionByHash(ctx, "hash-1")
+	if err != nil || sess.UserID != uid || sess.RevokedAt != nil {
+		t.Fatalf("SessionByHash=%+v,%v", sess, err)
+	}
+	if err := s.RotateSession(ctx, "hash-1", "hash-2", time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("RotateSession: %v", err)
+	}
+	if _, err := s.SessionByHash(ctx, "hash-1"); err != ErrNotFound {
+		t.Fatalf("old hash after rotate err=%v, want ErrNotFound", err)
+	}
+	if _, err := s.SessionByHash(ctx, "hash-2"); err != nil {
+		t.Fatalf("new hash after rotate: %v", err)
+	}
+}
+
+func TestRevokeAllForUser(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t, ctx)
+	uid, _ := seedUserOrg(t, ctx, s)
+	exp := time.Now().Add(time.Hour)
+	_ = s.CreateSession(ctx, uid, "h-a", "", exp)
+	_ = s.CreateSession(ctx, uid, "h-b", "", exp)
+	if err := s.RevokeAllForUser(ctx, uid); err != nil {
+		t.Fatalf("RevokeAllForUser: %v", err)
+	}
+	if _, err := s.SessionByHash(ctx, "h-a"); err != ErrNotFound {
+		t.Fatalf("h-a should be gone, err=%v", err)
 	}
 }
