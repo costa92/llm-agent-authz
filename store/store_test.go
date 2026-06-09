@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/costa92/llm-agent-authz/role"
 )
 
 const liveEnvVar = "LLM_AGENT_AUTHZ_PG_URL"
@@ -76,5 +78,77 @@ func TestGetUserMissing(t *testing.T) {
 	s := openTestStore(t, ctx)
 	if _, err := s.GetUserByEmail(ctx, "nobody@x.com"); err != ErrNotFound {
 		t.Fatalf("missing user err=%v, want ErrNotFound", err)
+	}
+}
+
+func seedUserOrg(t *testing.T, ctx context.Context, s *Store) (uid, oid string) {
+	t.Helper()
+	uid, err := s.CreateUser(ctx, newID()+"@x.com", "h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	oid, err = s.CreateOrg(ctx, "Acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return uid, oid
+}
+
+func TestResolveRoleMergesOrgAndScope(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t, ctx)
+	uid, oid := seedUserOrg(t, ctx, s)
+	if err := s.UpsertMembership(ctx, oid, uid, "kb", nil, role.RoleEditor); err != nil {
+		t.Fatal(err)
+	}
+	kb := "kb-1"
+	if err := s.UpsertMembership(ctx, oid, uid, "kb", &kb, role.RoleViewer); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ResolveRole(ctx, uid, oid, "kb", "kb-1")
+	if err != nil || got != role.RoleEditor {
+		t.Fatalf("ResolveRole=%q,%v want editor", got, err)
+	}
+}
+
+func TestResolveRoleNoMembershipIsNone(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t, ctx)
+	uid, oid := seedUserOrg(t, ctx, s)
+	got, err := s.ResolveRole(ctx, uid, oid, "kb", "kb-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != role.RoleNone {
+		t.Fatalf("no membership should resolve to none, got %q", got)
+	}
+}
+
+func TestResolveRoleScopeIsolated(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t, ctx)
+	uid, oid := seedUserOrg(t, ctx, s)
+	kbA := "kb-A"
+	if err := s.UpsertMembership(ctx, oid, uid, "kb", &kbA, role.RoleAdmin); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.ResolveRole(ctx, uid, oid, "kb", "kb-B")
+	if got != role.RoleNone {
+		t.Fatalf("admin on kb-A leaked to kb-B: %q", got)
+	}
+}
+
+func TestUpsertMembershipReplacesRole(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t, ctx)
+	uid, oid := seedUserOrg(t, ctx, s)
+	kb := "kb-1"
+	_ = s.UpsertMembership(ctx, oid, uid, "kb", &kb, role.RoleViewer)
+	if err := s.UpsertMembership(ctx, oid, uid, "kb", &kb, role.RoleAdmin); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.ResolveRole(ctx, uid, oid, "kb", "kb-1")
+	if got != role.RoleAdmin {
+		t.Fatalf("upsert should replace role, got %q", got)
 	}
 }
