@@ -6,7 +6,7 @@ import (
 )
 
 // HeadSchemaVersion is the latest schema version this code migrates to.
-const HeadSchemaVersion = 2
+const HeadSchemaVersion = 3
 
 type migrationGroup struct {
 	Version    int
@@ -51,6 +51,12 @@ func migrations() []migrationGroup {
 			`ALTER TABLE auth_user ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT true`,
 			`ALTER TABLE auth_user ADD COLUMN IF NOT EXISTS verification_code TEXT NOT NULL DEFAULT ''`,
 			`ALTER TABLE auth_user ADD COLUMN IF NOT EXISTS verification_expires_at TIMESTAMPTZ`,
+		}},
+		// v3: soft-delete support. A non-null deleted_at marks a retired account;
+		// GetUserByEmail filters it out so a soft-deleted user can no longer log in,
+		// while the row (and its FK children) survive for audit/created-by lineage.
+		{Version: 3, Statements: []string{
+			`ALTER TABLE auth_user ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`,
 		}},
 	}
 }

@@ -205,6 +205,47 @@ func TestRevokeAllForUser(t *testing.T) {
 	}
 }
 
+func TestSoftDeleteUserBlocksLoginAndRevokesSessions(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t, ctx)
+	uid, _ := seedUserOrg(t, ctx, s)
+	exp := time.Now().Add(time.Hour)
+	if err := s.CreateSession(ctx, uid, "sd-hash", "agent", exp); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	// Resolve the user's email so we can prove GetUserByEmail stops finding it.
+	var email string
+	if err := s.pool.QueryRow(ctx, `SELECT email FROM auth_user WHERE id=$1`, uid).Scan(&email); err != nil {
+		t.Fatalf("read email: %v", err)
+	}
+
+	if err := s.SoftDeleteUser(ctx, uid); err != nil {
+		t.Fatalf("SoftDeleteUser: %v", err)
+	}
+
+	// Login lookup must no longer find the user (this is what blocks re-login).
+	if _, err := s.GetUserByEmail(ctx, email); err != ErrNotFound {
+		t.Fatalf("GetUserByEmail after soft-delete err=%v, want ErrNotFound", err)
+	}
+	// The row survives (audit / created-by lineage) with deleted_at stamped.
+	var n int
+	var deletedAt *time.Time
+	if err := s.pool.QueryRow(ctx, `SELECT count(*), max(deleted_at) FROM auth_user WHERE id=$1`, uid).Scan(&n, &deletedAt); err != nil {
+		t.Fatalf("read row: %v", err)
+	}
+	if n != 1 || deletedAt == nil {
+		t.Fatalf("row should survive with deleted_at set: count=%d deleted_at=%v", n, deletedAt)
+	}
+	// The refresh session is revoked (an outstanding cookie cannot refresh).
+	if _, err := s.SessionByHash(ctx, "sd-hash"); err != ErrNotFound {
+		t.Fatalf("session after soft-delete err=%v, want ErrNotFound (revoked)", err)
+	}
+	// Second soft-delete is a no-op → ErrNotFound (already retired).
+	if err := s.SoftDeleteUser(ctx, uid); err != ErrNotFound {
+		t.Fatalf("double soft-delete err=%v, want ErrNotFound", err)
+	}
+}
+
 func TestSetPassword(t *testing.T) {
 	ctx := context.Background()
 	s := openTestStore(t, ctx)
