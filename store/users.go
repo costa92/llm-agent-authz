@@ -103,3 +103,19 @@ func (s *Store) CreateOrg(ctx context.Context, name string) (string, error) {
 	}
 	return id, nil
 }
+
+// SetPassword updates the password hash for the given user ID.
+// If the user does not exist, it returns ErrNotFound.
+func (s *Store) SetPassword(ctx context.Context, userID, passwordHash string) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE auth_user SET password_hash = $2 WHERE id = $1`,
+		userID, passwordHash)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
