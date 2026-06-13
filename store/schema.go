@@ -6,7 +6,7 @@ import (
 )
 
 // HeadSchemaVersion is the latest schema version this code migrates to.
-const HeadSchemaVersion = 1
+const HeadSchemaVersion = 2
 
 type migrationGroup struct {
 	Version    int
@@ -46,6 +46,11 @@ func migrations() []migrationGroup {
 				created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 			)`,
 			`CREATE INDEX IF NOT EXISTS auth_session_user ON auth_session (user_id)`,
+		}},
+		{Version: 2, Statements: []string{
+			`ALTER TABLE auth_user ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT true`,
+			`ALTER TABLE auth_user ADD COLUMN IF NOT EXISTS verification_code TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE auth_user ADD COLUMN IF NOT EXISTS verification_expires_at TIMESTAMPTZ`,
 		}},
 	}
 }
