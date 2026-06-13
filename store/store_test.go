@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -203,3 +204,32 @@ func TestRevokeAllForUser(t *testing.T) {
 		t.Fatalf("h-a should be gone, err=%v", err)
 	}
 }
+
+func TestSetPassword(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t, ctx)
+	id, err := s.CreateUser(ctx, "setpw@example.com", "old-hash")
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	err = s.SetPassword(ctx, id, "new-hash")
+	if err != nil {
+		t.Fatalf("SetPassword: %v", err)
+	}
+
+	u, err := s.GetUserByEmail(ctx, "setpw@example.com")
+	if err != nil {
+		t.Fatalf("GetUserByEmail: %v", err)
+	}
+	if u.PasswordHash != "new-hash" {
+		t.Fatalf("password not updated, got %q, want %q", u.PasswordHash, "new-hash")
+	}
+
+	// Non-existent user should return ErrNotFound.
+	err = s.SetPassword(ctx, "non-existent-id", "some-hash")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for non-existent user, got %v", err)
+	}
+}
+
