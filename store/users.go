@@ -48,15 +48,51 @@ func (s *Store) CreateUser(ctx context.Context, email, passwordHash string) (str
 	return id, nil
 }
 
+// GetUserByEmail looks up a live (not soft-deleted) user by email. The
+// `deleted_at IS NULL` guard is load-bearing: it is what blocks a soft-deleted
+// account from logging in (Service.Login resolves the user through here) — a
+// retired account becomes ErrNotFound, indistinguishable from never having
+// existed.
 func (s *Store) GetUserByEmail(ctx context.Context, email string) (User, error) {
 	var u User
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, email, password_hash, is_verified, verification_code, verification_expires_at FROM auth_user WHERE email = $1`,
+		`SELECT id, email, password_hash, is_verified, verification_code, verification_expires_at
+		 FROM auth_user WHERE email = $1 AND deleted_at IS NULL`,
 		normalizeEmail(email)).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.IsVerified, &u.VerificationCode, &u.VerificationExpiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, ErrNotFound
 	}
 	return u, err
+}
+
+// SoftDeleteUser retires a user: it stamps deleted_at (so GetUserByEmail can no
+// longer find them → login blocked) and revokes all their refresh sessions (so an
+// outstanding refresh cookie cannot mint a new session). The row and its FK
+// children (memberships, sessions) are preserved for audit and to keep
+// created-by lineage resolvable. Already-issued ACCESS tokens remain valid until
+// they expire (≤ access TTL) — the standard stateless-JWT residual window.
+//
+// Idempotent-ish: a user that does not exist or is already soft-deleted returns
+// ErrNotFound (0 rows matched the `deleted_at IS NULL` guard).
+func (s *Store) SoftDeleteUser(ctx context.Context, userID string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	tag, err := tx.Exec(ctx,
+		`UPDATE auth_user SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL`, userID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE auth_session SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`, userID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Store) SetUserVerificationCode(ctx context.Context, email, code string, expiresAt time.Time) error {
@@ -118,4 +154,3 @@ func (s *Store) SetPassword(ctx context.Context, userID, passwordHash string) er
 	}
 	return nil
 }
-
