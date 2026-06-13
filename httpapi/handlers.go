@@ -54,6 +54,16 @@ func (h *Handlers) login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
+	if errors.Is(err, service.ErrEmailNotVerified) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"verified": false,
+			"email":    req.Email,
+			"error":    "email not verified",
+		})
+		return
+	}
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return

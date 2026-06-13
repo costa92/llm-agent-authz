@@ -62,7 +62,7 @@ func newSvc(t *testing.T) (*Service, *fakeStore) {
 	t.Helper()
 	fs := newFakeStore()
 	hash, _ := password.Hash("pw")
-	fs.users["alice@x.com"] = store.User{ID: "u1", Email: "alice@x.com", PasswordHash: hash}
+	fs.users["alice@x.com"] = store.User{ID: "u1", Email: "alice@x.com", PasswordHash: hash, IsVerified: true}
 	svc := New(fs, token.NewIssuer([]byte("sec"), 15*time.Minute), 30*24*time.Hour)
 	return svc, fs
 }

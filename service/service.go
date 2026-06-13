@@ -18,6 +18,9 @@ import (
 // (no account enumeration).
 var ErrInvalidCredentials = errors.New("authz: invalid credentials")
 
+// ErrEmailNotVerified is returned when trying to login with an unverified email address.
+var ErrEmailNotVerified = errors.New("authz: email not verified")
+
 // Store is the persistence slice the service needs (satisfied by *store.Store).
 type Store interface {
 	GetUserByEmail(ctx context.Context, email string) (store.User, error)
@@ -69,7 +72,14 @@ func (s *Service) Login(ctx context.Context, email, plain, userAgent string) (Lo
 	if err != nil || !ok {
 		return LoginResult{}, ErrInvalidCredentials
 	}
+	if !u.IsVerified {
+		return LoginResult{}, ErrEmailNotVerified
+	}
 	return s.issue(ctx, u.ID, userAgent)
+}
+
+func (s *Service) IssueSession(ctx context.Context, userID, userAgent string) (LoginResult, error) {
+	return s.issue(ctx, userID, userAgent)
 }
 
 func (s *Service) issue(ctx context.Context, userID, userAgent string) (LoginResult, error) {
