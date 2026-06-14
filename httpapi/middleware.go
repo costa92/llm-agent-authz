@@ -27,8 +27,11 @@ func Authenticate(iss *token.Issuer) func(http.Handler) http.Handler {
 			authz := r.Header.Get("Authorization")
 			tok, ok := strings.CutPrefix(authz, "Bearer ")
 			if !ok || tok == "" {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
-				return
+				tok = r.URL.Query().Get("token")
+				if tok == "" {
+					http.Error(w, "unauthorized", http.StatusUnauthorized)
+					return
+				}
 			}
 			uid, err := iss.Verify(tok)
 			if err != nil {
